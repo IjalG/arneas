@@ -27,7 +27,7 @@
 
 ```bibtex
 @misc{arneas,
-  author = {（作者名）},
+  author = {IjalG},
   title  = {逐像素自回归预测编码：一种极简参数下的近无损图像压缩方法},
   year   = {2026},
   url    = {https://github.com/IjalG/arneas}

@@ -344,7 +344,7 @@ python3 experiments/full_res_test.py <your.tif>
 
 ---
 
-> **仓库**：本方法完整代码、实验数据与论文公开于 GitHub 仓库 **arneas**（ar-nearlossless-codec · 基于线性自回归模型的图像压缩编码器），可复现本文全部数字。
+> **仓库**：本方法完整代码、实验数据与论文公开于 GitHub 仓库 [**arneas**](https://github.com/IjalG/arneas)（ar-nearlossless-codec · 基于线性自回归模型的图像压缩编码器），可复现本文全部数字。
 
 ## 附言（研究志）
 
