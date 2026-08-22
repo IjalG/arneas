@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.eggs/
+*.egg-info/
+dist/
+build/
+
+# 实验输出（大文件/临时）
+*.npz
+out*.png
+compare_*.png
+detail_*.png
+
+# 私人/未公开数据（安全起见不入库）
+test/
+test_images/
+*.TIF
+*.tif
+
+# 环境
+.venv/
+venv/
+env/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# 笔记/草稿
+*.tmp
+*.bak

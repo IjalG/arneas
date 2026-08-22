@@ -1,0 +1,34 @@
+本仓库采用双重许可证（Dual Licensing）：
+
+## 代码部分（graph_code/ 与 experiments/ 中的 .py 脚本）
+
+**知识共享 署名-非商业性使用-相同方式共享 4.0 国际**
+**Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)**
+
+您可以自由地：
+- **共享** —— 在任何媒介以任何形式复制、发行本作品
+- **演绎** —— 修改、转换或以本作品为基础进行创作
+
+惟须遵守下列条件：
+- **署名（BY）** —— 必须给出适当的署名，提供指向本许可证的链接，同时标明是否做修改；
+- **非商业性使用（NC）** —— 不得将本作品用于商业目的；
+- **相同方式共享（SA）** —— 如果对作品进行修改、转换或基于作品创作，必须以相同许可证分发您的贡献。
+
+> 特别声明：**禁止**将本代码或基于本代码的实现用于任何商业产品的开发、销售或以盈利为目的的服务；**禁止**以本代码为基础内容申请专利或作为竞赛/学术成果的主体内容而不做实质性修改。
+
+完整许可证文本：https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode.zh-Hans
+
+## 论文部分（PAPER.md）
+
+**知识共享 署名-非商业性使用-禁止演绎 4.0 国际**
+**Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International (CC BY-NC-ND 4.0)**
+
+您可以自由复制与分发本文的副本，但：
+- **非商业性使用（NC）** —— 不得用于商业目的；
+- **禁止演绎（ND）** —— 不得修改、转换或基于本文创建衍生作品（引用时请注明出处与作者）。
+
+完整许可证文本：https://creativecommons.org/licenses/by-nc-nd/4.0/legalcode.zh-Hans
+
+---
+
+**许可依据声明**：本仓库中的实验数据（Kodak 测试集）来自公开数据集，其自身版权归原数据集作者所有；本仓库仅使用其进行学术复现与对比，不在本许可范围内主张对数据集内容的权利。
