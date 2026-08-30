@@ -98,6 +98,24 @@ def build_windows(channel: np.ndarray, conds: list[np.ndarray], K: int):
     return X, y
 
 
+
+def solve_normal_equation(model: nn.Module, X: torch.Tensor, y: torch.Tensor):
+    """闭式最小二乘（正规方程）：w = (XᵀX + λI)⁻¹Xᵀy。
+
+    对线性模型给出解析全局最优解，无需调学习率/步数，且比迭代梯度下降
+    更准、更快。X 拼接全 1 列以同时求解偏置（带截距最小二乘）。
+    返回原模型（权重与偏置已写入）。
+    """
+    Xn = X.detach().numpy().astype(np.float64)
+    yn = y.detach().numpy().astype(np.float64)
+    Xa = np.hstack([Xn, np.ones((Xn.shape[0], 1))])
+    wb, *_ = np.linalg.lstsq(Xa, yn, rcond=None)   # 数值稳定（含最小范数处理）
+    with torch.no_grad():
+        model.weight.copy_(torch.from_numpy(wb[:-1].astype(np.float32)).reshape(1, -1))
+        model.bias.copy_(torch.from_numpy(np.array([wb[-1]], dtype=np.float32)))
+    return model
+
+
 def train_model(model: nn.Module, X: torch.Tensor, y: torch.Tensor,
                 steps: int = 500, lr: float = 1e-2, batch: int = 256,
                 rng_seed: int = 0) -> nn.Module:
@@ -365,7 +383,9 @@ def dequantize_weights(qw: dict, model: nn.Module) -> nn.Module:
 
 def compress(img: np.ndarray, K: int = 32, q: float = 4.0, steps: int = 500,
              lr: float = 1e-2, model_type: str = "linear", hidden: int = 32,
-             rng_seed: int = 0, window: str = "1d") -> dict:
+             rng_seed: int = 0, window: str = "1d",
+             solver: str = "auto") -> dict:
+    """solver: 'auto'（2D 线性用正规方程，其余用 Adam）| 'adam' | 'normal'。"""
     """img: (H, W, 3) uint8 RGB -> package dict.
 
     K is the seed length; for model_type='linear' and window='1d' it also
@@ -396,7 +416,12 @@ def compress(img: np.ndarray, K: int = 32, q: float = 4.0, steps: int = 500,
             Kc = max(K, c + 1)          # leave room for conditioning values
             model = make_model(model_type, Kc, hidden)
             X, y = build_windows(chn, conds, Kc)
-        train_model(model, X, y, steps=steps, lr=lr, rng_seed=rng_seed)
+        use_normal = (solver == "normal") or (solver == "auto" and window == "2d"
+                      and model_type == "linear")
+        if use_normal:
+            solve_normal_equation(model, X, y)   # 闭式全局最优，更快更准
+        else:
+            train_model(model, X, y, steps=steps, lr=lr, rng_seed=rng_seed)
         # CRITICAL: the encoder must run the closed loop with the EXACT model
         # the decoder will have (quantized weights). The AR loop is a feedback
         # system: any mismatch between encoder/decoder models accumulates over
@@ -418,7 +443,8 @@ def compress(img: np.ndarray, K: int = 32, q: float = 4.0, steps: int = 500,
 
     pkg = dict(
         meta=dict(K=K, q=q, H=H, W=W, model_type=model_type,
-                  hidden=hidden, order=DECODE_ORDER, window=window),
+                  hidden=hidden, order=DECODE_ORDER, window=window,
+                  solver="normal" if use_normal else "adam"),
         weights=models,
         seeds=seeds,
         residuals=residuals,

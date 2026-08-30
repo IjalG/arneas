@@ -412,7 +412,9 @@ def compress_entropy(img: np.ndarray, K: int = 32, q: float = 4.0,
                      model_type: str = "linear", hidden: int = 32,
                      merge_m: int = 0, rng_seed: int = 0,
                      window: str = "1d",
-                     pretrained_qw: dict | None = None) -> dict:
+                     pretrained_qw: dict | None = None,
+                     solver: str = "auto") -> dict:
+    """solver: 'auto'（2D 线性用正规方程）| 'adam' | 'normal'（需 loss_mode='mse'）。"""
     """window: '1d' (original) or '2d' (2D neighbour window, see codec.compress).
 
     pretrained_qw : optional {ch: quantized-weights dict} — reuse already
@@ -448,9 +450,15 @@ def compress_entropy(img: np.ndarray, K: int = 32, q: float = 4.0,
         if pretrained_qw and ch in pretrained_qw:
             qw = pretrained_qw[ch]          # trained once, shared across q
         else:
-            table = SymbolTable()
-            train_model_entropy(model, table, X, y, delta, loss_mode, lam,
-                                steps=steps, lr=lr, rng_seed=rng_seed)
+            use_normal = (solver == "normal") or (solver == "auto"
+                          and window == "2d" and model_type == "linear"
+                          and loss_mode == "mse")
+            if use_normal:
+                codec.solve_normal_equation(model, X, y)  # 闭式全局最优
+            else:
+                table = SymbolTable()
+                train_model_entropy(model, table, X, y, delta, loss_mode, lam,
+                                    steps=steps, lr=lr, rng_seed=rng_seed)
             qw = quantize_weights(model)
         dequantize_weights(qw, model)
         seed_px = img[:, :, idx].reshape(-1)[:Kc2].astype(np.uint8)
