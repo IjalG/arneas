@@ -196,12 +196,25 @@ JPEG 用远低码率换 40 dB 档画质；但 **JPEG 受块效应限制无法进
 |---|---|---|---|
 | 2 | 52.90 | 51.17 | 3.940 |
 | 4 | 46.88 | 46.37 | 2.982 |
-| 8 | 40.86 | 40.6 | 2.0 |
-| 16 | 34.84 | 34.9 | 1.2 |
+| 8 | 40.86 | 40.83 | 2.091 |
+| 16 | 34.84 | 35.10 | 1.324 |
 
-（q=8、q=16 码率来自早期相机图扫描，Kodak 全套只精测 q=2/q=4；各行 PSNR 为 Kodak 实测平均。）
+（以上均为 Kodak 24 张实测平均，MSE 训练与 q 无关，模型只训练一次后对各档复用。）
 
 实测与理论相差 0.2~1.5 dB 以内、总体吻合（个别档因离散量化效应略超上限）——验证了 §4 的量化噪声模型。
+
+### 6.5 预测器结构：一维窗口 vs 二维窗口
+
+将二维模型换回最初的一维窗口模型（仅用同一行左邻，其余训练与编码不变），在 Kodak 24 张上对比近无损（q=2）表现：
+
+| 指标 | 一维窗口 | 二维窗口 | 改进 |
+|---|---|---|---|
+| 平均码率 (bpp) | 4.233 | 3.940 | **−6.9%** |
+| 平均 PSNR (dB) | 51.17 | 51.17 | 持平 |
+
+二维邻居信息使竖直渐变可预测，残差熵下降，码率降低 6.9% 而画质不变——预测器"看得懂的结构"越多，残差越低，这正是预测编码的本质：把可预测结构先"算掉"，熵编码只负责不可预测的部分。
+
+
 
 ### 6.5 全尺寸原始影像验证
 
@@ -282,7 +295,7 @@ JPEG 用远低码率换 40 dB 档画质；但 **JPEG 受块效应限制无法进
 
 ### 8.5 综合经验
 
-**残差熵是码率的主体**；把它压向信息论下限的符号域手段（熵模型、符号合并、游程）收益已封顶。真正显著的改进来自**让预测器本身更准**——窗口从一维改二维即省 3%~13%。后续应着力于更强、更自适应的预测建模，而非符号编码的单点优化。
+**残差熵是码率的主体**；把它压向信息论下限的符号域手段（熵模型、符号合并、游程）收益已封顶。真正显著的改进来自**让预测器本身更准**——窗口由一维改二维，Kodak 24 张平均码率下降 6.9%（见 §6.5）。后续应着力于更强、更自适应的预测建模，而非符号编码的单点优化。
 
 ---
 
@@ -290,7 +303,7 @@ JPEG 用远低码率换 40 dB 档画质；但 **JPEG 受块效应限制无法进
 
 1. **平坦/渐变区**：对大片天空、白墙类内容，PNG 游程压缩更优。改进方向：在残差流中加入游程模式（RUN）；
 2. **预测器为线性**：对强边缘/复杂纹理表达能力有限。改进：在二维特征基础上引入 MLP 或更大邻域，参数仍少的同时进一步压残差熵；
-3. **训练时间**：逐图训练+顺序解码，超大图偏慢。已用 numba 提速约 1000 倍（42 Mpx/s）；可进一步使用"训练共享"（MSE 训练与 q 无关，多档扫描只训一次）；
+3. **训练时间**：逐图训练+顺序解码，超大图偏慢。实测单张 500×500 图，一维窗口压缩耗时 30.0 s，二维窗口仅 5.6 s（提速 5.3 倍）；闭环部分经 numba 编译已较纯 Python 快约 1000 倍（42 Mpx/s）。对比单图过拟合型学习压缩（COIN 单图需训练 5 万次迭代，本方法每通道仅 300 步、共 900 步），本方法训练量低两个数量级。可进一步使用"训练共享"（MSE 训练与 q 无关，多档扫描只训一次）；
 4. **失真指标**：PSNR 对空间细节不敏感，可引入感知指标（SSIM/MS-SSIM）。
 
 ---
@@ -301,6 +314,24 @@ JPEG 用远低码率换 40 dB 档画质；但 **JPEG 受块效应限制无法进
 
 ---
 
+
+## 参考文献
+
+[1] Zhang A, Lipton Z C, Li M, Smola A J. 动手学深度学习[M/OL]. 何孝霆 等 译. 北京: 人民邮电出版社, 2020. https://zh.d2l.ai. （作者实际阅读的教材，本文思路启发来源）
+
+[2] Weinberger M J, Seroussi G, Sapiro G. The LOCO-I lossless image compression algorithm: principles and standardization into JPEG-LS[J]. IEEE Transactions on Image Processing, 9(8), 2000: 1309-1324. （回溯检索，定位对照：JPEG-LS）
+
+[3] Wu X, Memon N. Context-based, adaptive, lossless image coding[J]. IEEE Transactions on Communications, 45(4), 1997: 437-444. （回溯检索，定位对照：CALIC）
+
+[4] Ballé J, Laparra V, Simoncelli E P. End-to-end Optimized Image Compression[C]. International Conference on Learning Representations (ICLR), 2017. （回溯检索，生态位对比：全局泛化型学习压缩）
+
+[5] Dupont E, Goliński A, Alizadeh M, Teh Y W, Doucet A. COIN: COmpression with Implicit Neural representations[C/OL]. arXiv:2103.03123, 2021. （回溯检索，生态位对比：单图过拟合型学习压缩）
+
+[6] van den Oord A, Kalchbrenner N, Espeholt L, Kavukcuoglu K, Vinyals O, et al. Conditional Image Generation with PixelCNN Decoders[C]. Advances in Neural Information Processing Systems (NIPS), 2016. （回溯检索，级联通道建模思路对照）
+
+> 引用说明：正文中所有点名提及的文献均已列于此。[1] 为作者实际阅读的教材；[2]–[6] 为实验定稿后回溯检索所得，仅用于定位对照，均未参与建模。
+
+---
 ## 附录 A：复现指引
 
 ```bash
