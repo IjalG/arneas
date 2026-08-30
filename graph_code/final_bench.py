@@ -20,7 +20,7 @@ from PIL import Image
 import codec
 import entropy_codec as ec
 
-# 本仓库统一使用公开的 Kodak 测试集（768×512，24 张）。完整基准见
+# 本仓库统一使用公开的 Kodak 测试集镜像（500×500，24 张；官方原版 768×512）。完整基准见
 # ../experiments/kodak_bench.py；此处以 Kodak 前 3 张做快速自检。
 import os as _os
 ROOT = _os.path.dirname(_os.path.abspath(__file__))
@@ -35,7 +35,8 @@ def bench(name: str, path: str, window: str) -> None:
     img = np.asarray(Image.open(path).convert("RGB")).astype(np.uint8)
     H, W = img.shape[:2]
     npx = H * W * 3
-    png_bpp = os.path.getsize(path) * 8 / npx
+    buf = io.BytesIO(); Image.fromarray(img).save(buf, "PNG")
+    png_bpp = len(buf.getvalue()) * 8 / npx  # 重编码口径
     print(f"\n===== {name} ({W}x{H}) =====")
     print(f"  PNG lossless : {png_bpp:6.3f} bpp  ({os.path.getsize(path)/1024:.0f} KB)")
     Kc = 16 if window == "2d" else 32
