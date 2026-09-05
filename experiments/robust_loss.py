@@ -24,6 +24,9 @@ DATA = os.path.join(ROOT, "..", "data", "kodak")
 Q = 2.0
 QN = Q / 127.5          # 归一化域量化步长（X/y 在 [-1,1]）
 
+TRIM_FRAC = {}  # tau -> 子集占比列表
+
+
 def make_trim_solver(tau: float):
     def solve(model, X, y):
         Xn = X.detach().numpy().astype(np.float64)
@@ -34,6 +37,7 @@ def make_trim_solver(tau: float):
         e = yn - pred
         mask = np.abs(e) <= tau / 127.5                       # 阶段II：硬阈值子集（灰度τ → 归一化域）
         frac = mask.mean()
+        TRIM_FRAC.setdefault(tau, []).append(frac)  # 记录子集占比
         if 0.02 <= frac <= 0.999:
             wb, *_ = np.linalg.lstsq(Xa[mask], yn[mask], rcond=None)  # 阶段III：子集 LS
         with torch.no_grad():
@@ -65,6 +69,9 @@ SOLVERS = {
     "trim1": make_trim_solver(1.0),
     "trim2": make_trim_solver(2.0),
     "trim3": make_trim_solver(3.0),
+    "trim4": make_trim_solver(4.0),
+    "trim6": make_trim_solver(6.0),
+    "trim8": make_trim_solver(8.0),
     "irls1": make_irls_solver(1),
     "irls3": make_irls_solver(3),
     "irls5": make_irls_solver(5),
@@ -129,14 +136,18 @@ def main():
         if subset is None or len(agg["mse"]["bpp"]) == len(files):
             pass
     print(f"Kodak {len(files)} 张平均（q=2，真实算术码率，仅训练目标不同）")
-    print(f"{'solver':8s} {'bpp':>7s} {'Δbpp%':>8s} {'PSNR':>7s} {'r=0占比':>8s} {'符号熵H':>7s}")
+    print(f"{'solver':8s} {'bpp':>7s} {'Δbpp%':>8s} {'PSNR':>7s} {'r=0占比':>8s} {'符号熵H':>7s} {'子集%':>7s}")
     base = sum(agg["mse"]["bpp"]) / len(files)
     for n in names:
         b = sum(agg[n]["bpp"]) / len(files)
         p = sum(agg[n]["psnr"]) / len(files)
         r0 = sum(agg[n]["r0"]) / len(files)
         H = sum(agg[n]["H"]) / len(files)
-        print(f"{n:8s} {b:7.3f} {(b-base)/base*100:+7.2f}% {p:7.2f} {r0*100:7.1f}% {H:7.3f}")
+        fr = ""
+        for tau in sorted(TRIM_FRAC):
+            if f"trim{int(tau)}" == n:
+                fr = f"{sum(TRIM_FRAC[tau])/len(TRIM_FRAC[tau])*100:6.1f}%"
+        print(f"{n:8s} {b:7.3f} {(b-base)/base*100:+7.2f}% {p:7.2f} {r0*100:7.1f}% {H:7.3f} {fr:>7s}")
     print(f"耗时 {time.time()-t0:.0f}s")
 
 if __name__ == "__main__":
