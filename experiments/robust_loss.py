@@ -76,8 +76,14 @@ SOLVERS = {
     "irls3": make_irls_solver(3),
     "irls5": make_irls_solver(5),
     "irls10": make_irls_solver(10),
+    "irls2": make_irls_solver(2),
+    "irls7": make_irls_solver(7),
+    "irls15": make_irls_solver(15),
+    "irls15": make_irls_solver(15),
     "irls20": make_irls_solver(20),
+    "irls30": make_irls_solver(30),
     "irls50": make_irls_solver(50),
+    "irls100": make_irls_solver(100),
 }
 
 def run_one(img, solver_name):
@@ -133,8 +139,7 @@ def main():
             r = run_one(img, n)
             agg[n]["bpp"].append(r["bpp"]); agg[n]["psnr"].append(r["psnr"])
             agg[n]["r0"].append(r["r0frac"]); agg[n]["H"].append(r["H"])
-        if subset is None or len(agg["mse"]["bpp"]) == len(files):
-            pass
+        pass
     print(f"Kodak {len(files)} 张平均（q=2，真实算术码率，仅训练目标不同）")
     print(f"{'solver':8s} {'bpp':>7s} {'Δbpp%':>8s} {'PSNR':>7s} {'r=0占比':>8s} {'符号熵H':>7s} {'子集%':>7s}")
     base = sum(agg["mse"]["bpp"]) / len(files)
