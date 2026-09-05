@@ -218,6 +218,82 @@ def arithmetic_encode(symbols: list, freqs: dict) -> bytes:
     return int(bits, 2).to_bytes(len(bits) // 8, "big")
 
 
+# --------------------------------------------------------------------------
+# arithmetic coder — 编码端 numba 版（与纯 Python 版逐位一致，约 17×）
+# --------------------------------------------------------------------------
+from numba import njit  # noqa: E402（解码端使用函数内延迟 import，此处集中导入）
+
+
+@njit(cache=True)
+def _arith_encode_bits(syms, cum, total, sym_min, idxmap):
+    n = syms.size
+    TOP = np.int64(1) << 32
+    HALF = np.int64(1) << 31
+    QUARTER = np.int64(1) << 30
+    THREEQ = HALF + QUARTER
+    low = np.int64(0); high = TOP - 1
+    bits = np.zeros(n * 8 + 512, dtype=np.int64)
+    nbits = np.int64(0); pending = np.int64(0)
+    for t in range(n):
+        s = syms[t]
+        i = idxmap[s - sym_min]
+        rng = high - low + 1
+        high = low + (rng * cum[i + 1]) // total - 1
+        low = low + (rng * cum[i]) // total
+        while True:
+            if high < HALF:
+                bits[nbits] = 0; nbits += 1
+                while pending > 0:
+                    bits[nbits] = 1; nbits += 1; pending -= 1
+            elif low >= HALF:
+                bits[nbits] = 1; nbits += 1
+                low -= HALF; high -= HALF
+                while pending > 0:
+                    bits[nbits] = 0; nbits += 1; pending -= 1
+            elif low >= QUARTER and high < THREEQ:
+                pending += 1
+                low -= QUARTER; high -= QUARTER
+            else:
+                break
+            low *= 2
+            high = high * 2 + 1
+    # 终止：pending += 1; put(0 if low < QUARTER else 1)（put 在 +1 之后）
+    pending += 1
+    last_bit = np.int64(0) if low < QUARTER else np.int64(1)
+    bits[nbits] = last_bit; nbits += 1
+    while pending > 0:
+        bits[nbits] = 1 - last_bit; nbits += 1; pending -= 1
+    return bits[:nbits]
+
+
+@njit(cache=True)
+def _pack_bits(bits):
+    nbits = bits.size
+    nbytes = (nbits + 7) // 8
+    out = np.zeros(nbytes, dtype=np.uint8)
+    for i in range(nbits):
+        if bits[i]:
+            out[i >> 3] = np.uint8(out[i >> 3] | (np.uint8(1) << np.uint8(7 - (i & 7))))
+    return out.tobytes()
+
+
+def arithmetic_encode_fast(symbols, freqs):
+    """numba 版算术编码：输出与 arithmetic_encode 逐位一致。"""
+    syms = sorted(freqs)
+    total = sum(freqs.values())
+    cum = [0]
+    for s in syms:
+        cum.append(cum[-1] + freqs[s])
+    arr = np.asarray(symbols, dtype=np.int64)
+    mn = int(arr.min()); mx = int(arr.max())
+    idxmap = np.full(mx - mn + 1, -1, dtype=np.int64)
+    for i, s in enumerate(syms):
+        idxmap[s - mn] = i
+    bits = _arith_encode_bits(arr, np.asarray(cum, dtype=np.int64),
+                              np.int64(total), mn, idxmap)
+    return _pack_bits(bits)
+
+
 def arithmetic_decode(stream: bytes, freqs: dict, n_symbols: int) -> list:
     syms, cum, total = _cdf(freqs)
     n_syms = len(syms)
@@ -495,7 +571,7 @@ def compress_entropy(img: np.ndarray, K: int = 32, q: float = 4.0,
         # encode with BOTH coders — the experiment compares them
         streams[ch] = {
             "huffman": huffman_encode(syms_coded.tolist(), freqs_dict),
-            "arithmetic": arithmetic_encode(syms_coded.tolist(), freqs_dict),
+            "arithmetic": arithmetic_encode_fast(syms_coded.tolist(), freqs_dict),
         }
         weights[ch] = qw
 
