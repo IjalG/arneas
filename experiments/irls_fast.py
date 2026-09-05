@@ -55,12 +55,13 @@ def mse_step_nb(Xa, yn):
 
 
 def solve_irls_numba(model: torch.nn.Module, X: torch.Tensor, y: torch.Tensor,
-                     iters: int = 15) -> torch.nn.Module:
-    """numba 加速版 IRLS（Geman-McClure），接口与 codec.solve_normal_equation 相同。"""
+                     iters: int = 15, q: float = 2.0) -> torch.nn.Module:
+    """numba 加速版 IRLS（Geman-McClure），接口与 codec.solve_normal_equation 相同。
+    q：量化步长（灰度域），进入 Geman-McClure 核 ρ=e²/(e²+q²)——训练依赖 q。"""
     Xn = X.detach().numpy().astype(np.float64)
     yn = y.detach().numpy().astype(np.float64)
     Xa = np.hstack([Xn, np.ones((Xn.shape[0], 1))])
-    q2 = (2.0 / 127.5) ** 2
+    q2 = (q / 127.5) ** 2
     G, g = mse_step_nb(Xa, yn)                       # W^(0)=I（MSE 起手）
     wb, *_ = np.linalg.lstsq(G, g, rcond=None)
     for _ in range(iters):

@@ -49,11 +49,11 @@ def make_trim_solver(tau: float):
 import irls_fast as _F
 
 
-def make_irls_solver(iters: int):
+def make_irls_solver(iters: int, q: float = Q):
     """numba 加速版 IRLS（Geman-McClure）：加权正规方程每步闭式求解。
-    与 numpy 参考实现逐位等价（bpp 一致），速度约 3×。"""
+    与 numpy 参考实现逐位等价（bpp 一致），速度约 3×。q 进入损失核，可逐档调节。"""
     def solve(model, X, y):
-        return _F.solve_irls_numba(model, X, y, iters=iters)
+        return _F.solve_irls_numba(model, X, y, iters=iters, q=q)
     return solve
 
 SOLVERS = {
@@ -92,16 +92,6 @@ def run_one(img, solver_name):
     ps = codec.psnr(img, out)
     # r=0 比例与符号熵（三通道合并）
     r0 = 0.0; H = 0.0; tot = 0
-    for ch in "GRB":
-        vals, cnts = pkg["freqs"][ch]
-        c = cnts.sum()
-        for v, n in zip(vals.tolist(), cnts.tolist()):
-            p = n / c
-            if v == 0: r0 += n
-            if p > 0: H -= p * np.log2(p)
-        tot += c
-        H *= 0  # 避免重复
-    H = 0.0; tot = 0
     for ch in "GRB":
         vals, cnts = pkg["freqs"][ch]
         c = int(cnts.sum())
