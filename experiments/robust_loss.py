@@ -1,0 +1,143 @@
+# -*- coding: utf-8 -*-
+"""实验：鲁棒回归损失 vs 标准 MSE 正规方程（熵编码语境下的终极检验）。
+
+命题：在 q 固定的近无损压缩中，真实码率由"死区内像素数（r=0 免编码）
++ 非死区符号熵"决定；标准 MSE 最小化"平均误差"而非"不可拟合像素数"。
+本脚本对比三种求解器（每像素的编码/闭环/熵编码全部一致，仅训练目标不同）：
+  1) mse   : 标准正规方程（基准）
+  2) trimT : 实验一：硬阈值两阶段子集正规方程（τ = T/2·q，保留 |e|≤τ）
+  3) irlsK : 实验二：IRLS（Geman-McClure 核 ρ=e²/(e²+q²)，K 次迭代）
+
+用法：python3 robust_loss.py [--subset 6] [--solver mse,trim1,irls3]
+"""
+import sys, os, time, io
+import numpy as np
+import torch
+from PIL import Image
+
+ROOT = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(ROOT, "..", "graph_code"))
+import codec
+import entropy_codec as ec
+
+DATA = os.path.join(ROOT, "..", "data", "kodak")
+Q = 2.0
+QN = Q / 127.5          # 归一化域量化步长（X/y 在 [-1,1]）
+
+def make_trim_solver(tau: float):
+    def solve(model, X, y):
+        Xn = X.detach().numpy().astype(np.float64)
+        yn = y.detach().numpy().astype(np.float64)
+        Xa = np.hstack([Xn, np.ones((Xn.shape[0], 1))])
+        wb, *_ = np.linalg.lstsq(Xa, yn, rcond=None)          # 阶段I：全空间 LS
+        pred = Xa @ wb
+        e = yn - pred
+        mask = np.abs(e) <= tau / 127.5                       # 阶段II：硬阈值子集（灰度τ → 归一化域）
+        frac = mask.mean()
+        if 0.02 <= frac <= 0.999:
+            wb, *_ = np.linalg.lstsq(Xa[mask], yn[mask], rcond=None)  # 阶段III：子集 LS
+        with torch.no_grad():
+            model.weight.copy_(torch.from_numpy(wb[:-1].astype(np.float32)).reshape(1, -1))
+            model.bias.copy_(torch.from_numpy(np.array([wb[-1]], dtype=np.float32)))
+        return model
+    return solve
+
+def make_irls_solver(iters: int):
+    def solve(model, X, y):
+        Xn = X.detach().numpy().astype(np.float64)
+        yn = y.detach().numpy().astype(np.float64)
+        Xa = np.hstack([Xn, np.ones((Xn.shape[0], 1))])
+        q2 = QN ** 2
+        wb, *_ = np.linalg.lstsq(Xa, yn, rcond=None)          # W^(0)=I（MSE 起手）
+        for _ in range(iters):
+            e = yn - Xa @ wb
+            wgt = q2 / (e * e + q2) ** 2                      # Geman-McClure IRLS 权重
+            Xw = Xa * wgt[:, None]
+            wb, *_ = np.linalg.lstsq(Xw.T @ Xa, Xw.T @ yn, rcond=None)
+        with torch.no_grad():
+            model.weight.copy_(torch.from_numpy(wb[:-1].astype(np.float32)).reshape(1, -1))
+            model.bias.copy_(torch.from_numpy(np.array([wb[-1]], dtype=np.float32)))
+        return model
+    return solve
+
+SOLVERS = {
+    "mse": None,               # 保持原 solve_normal_equation
+    "trim1": make_trim_solver(1.0),
+    "trim2": make_trim_solver(2.0),
+    "trim3": make_trim_solver(3.0),
+    "irls1": make_irls_solver(1),
+    "irls3": make_irls_solver(3),
+    "irls5": make_irls_solver(5),
+    "irls10": make_irls_solver(10),
+    "irls20": make_irls_solver(20),
+    "irls50": make_irls_solver(50),
+}
+
+def run_one(img, solver_name):
+    orig = codec.solve_normal_equation
+    if SOLVERS[solver_name] is not None:
+        codec.solve_normal_equation = SOLVERS[solver_name]
+    try:
+        pkg = ec.compress_entropy(img, K=16, q=Q, steps=300, window="2d", solver="normal")
+    finally:
+        codec.solve_normal_equation = orig
+    out = ec.decompress_entropy(pkg, coder="arithmetic")
+    npx = img.shape[0] * img.shape[1] * 3
+    bpp = ec.package_bytes(pkg, "arithmetic") * 8 / npx
+    ps = codec.psnr(img, out)
+    # r=0 比例与符号熵（三通道合并）
+    r0 = 0.0; H = 0.0; tot = 0
+    for ch in "GRB":
+        vals, cnts = pkg["freqs"][ch]
+        c = cnts.sum()
+        for v, n in zip(vals.tolist(), cnts.tolist()):
+            p = n / c
+            if v == 0: r0 += n
+            if p > 0: H -= p * np.log2(p)
+        tot += c
+        H *= 0  # 避免重复
+    H = 0.0; tot = 0
+    for ch in "GRB":
+        vals, cnts = pkg["freqs"][ch]
+        c = int(cnts.sum())
+        for v, n in zip(vals.tolist(), cnts.tolist()):
+            p = n / c
+            if v == 0: r0 += n
+            if p > 0: H -= p * np.log2(p)
+        tot += c
+    return dict(solver=solver_name, bpp=bpp, psnr=ps, r0frac=r0 / tot, H=H)
+
+def main():
+    subset = None
+    names = []
+    if "--subset" in sys.argv:
+        subset = int(sys.argv[sys.argv.index("--subset") + 1])
+    if "--solver" in sys.argv:
+        names = sys.argv[sys.argv.index("--solver") + 1].split(",")
+    files = sorted(os.listdir(DATA))
+    if subset:
+        files = files[:subset]
+    names = names or list(SOLVERS)
+    t0 = time.time()
+    agg = {n: dict(bpp=[], psnr=[], r0=[], H=[]) for n in names}
+    for f in files:
+        img = np.asarray(Image.open(os.path.join(DATA, f)).convert("RGB"))
+        for n in names:
+            r = run_one(img, n)
+            agg[n]["bpp"].append(r["bpp"]); agg[n]["psnr"].append(r["psnr"])
+            agg[n]["r0"].append(r["r0frac"]); agg[n]["H"].append(r["H"])
+        if subset is None or len(agg["mse"]["bpp"]) == len(files):
+            pass
+    print(f"Kodak {len(files)} 张平均（q=2，真实算术码率，仅训练目标不同）")
+    print(f"{'solver':8s} {'bpp':>7s} {'Δbpp%':>8s} {'PSNR':>7s} {'r=0占比':>8s} {'符号熵H':>7s}")
+    base = sum(agg["mse"]["bpp"]) / len(files)
+    for n in names:
+        b = sum(agg[n]["bpp"]) / len(files)
+        p = sum(agg[n]["psnr"]) / len(files)
+        r0 = sum(agg[n]["r0"]) / len(files)
+        H = sum(agg[n]["H"]) / len(files)
+        print(f"{n:8s} {b:7.3f} {(b-base)/base*100:+7.2f}% {p:7.2f} {r0*100:7.1f}% {H:7.3f}")
+    print(f"耗时 {time.time()-t0:.0f}s")
+
+if __name__ == "__main__":
+    main()
